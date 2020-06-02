@@ -5,6 +5,7 @@ Now, this repository has these modules below:
 
 - Upstream dynamic update module
 - Upstream health check module
+- http broadcast module
 
 
 
@@ -22,6 +23,7 @@ If someone want to build up new branch version, please keep these Licenses or co
 
 - ngx_http_dyups_module is the upstream dynamic update module, forked from https://github.com/yzprofile/ngx_http_dyups_module
 - ngx_http_upstream_check_module is the upstream health check module, forked from https://github.com/jackjiongyin/ngx_http_upstream_check_module
+- ngx_http_broadcast module is a module to send every http flow to the every server in a specified upstream.
 
 Their modules are very perfectly resolved their own job, but unfortunately, they can not work together.
 
@@ -33,12 +35,15 @@ So I modified a lot, made them working together and added new features and disca
 
 Modules are pure nginx module, so just add them in *configure*.
 
-**Notice**: ngx_http_dyups_module and ngx_http_upstream_check_module must be added simultaneously.
+**Notice**:
+
+1. ngx_http_dyups_module and ngx_http_upstream_check_module must be added simultaneously.
+2. If you want to add ngx_http_broadcast module, ngx_http_dyups_module must be added simultaneously.
 
 ```shell
 $ cd path-of-nginx
 $ git clone https://github.com/Water-Melon/nginx_modules.git
-$ ./configure --add-modules=nginx_modules/ngx_http_dyups_module --add-modules=nginx_modules/ngx_http_upstream_check_module ...
+$ ./configure --add-modules=nginx_modules/ngx_http_dyups_module --add-modules=nginx_modules/ngx_http_upstream_check_module --add-module=nginx_modules/ngx_http_broadcast ...
 $ make && make install
 ```
 
@@ -180,7 +185,7 @@ curl -H "Host: dyhosts" "http://127.0.0.1:8070/"
 
 
 
-#### 2. Ngx_http_upstream_check_module
+#### 2. ngx_http_upstream_check_module
 
 I discarded HTTP check, so this module is a TCP level health check module now.
 
@@ -207,6 +212,65 @@ upstream test {
   #rise means min succeed times. Greater than that, server will be set up
 }
 ```
+
+
+
+#### 3. ngx_http_broadcast
+
+##### Directives
+
+- **broadcast**
+
+  This directive can be set in location, if and limit_except zone to indicate this part of traffic flow should be broadcasted.
+
+  Directive has one parameter to indicate upstream name. This parameter will be treated as variable name that will be searched in nginx variables.
+
+##### Variables
+
+- **broadcast_host**
+
+  The value of this variable is the upstream name that set by directive **broadcast**.
+
+##### Configuration
+
+```nginx
+user root;
+daemon off;
+worker_processes  6;
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+
+    keepalive_timeout  65;
+
+    upstream test {
+        server 127.0.0.1:1234;
+        server 127.0.0.1:8080;
+    }
+    server {
+        listen       80;
+        server_name  127.0.0.1;
+			  location / {
+            broadcast _dyups_dyhosts; #_dyups_dyhosts is ngx_http_dyups_module's prefix variable. You don't have to use $ at the beginning of the name.
+            proxy_pass http://$broadcast_host;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+}
+```
+
+##### Broadcast
+
+Just visit the location which set broadcast and see your upstream servers' access log.
 
 
 

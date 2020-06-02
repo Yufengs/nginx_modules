@@ -704,7 +704,7 @@ static ngx_int_t ngx_http_upstream_health_check_init_timers(ngx_cycle_t *cycle)
         if (peer->shm->wid == -1) {
             peer->shm->wid = peer->shm->index % worker_processes;
         }
-        if (peer->shm->wid != (ngx_process_slot % worker_processes)) {
+        if (peer->shm->wid != ngx_process_slot) {
             ngx_http_check_peer_unlock();
             continue;
         }
@@ -1219,14 +1219,11 @@ ngx_http_upstream_health_check_update_init_timers(ngx_str_t *upstream_name, ngx_
 {
     ngx_http_upstream_health_check_main_conf_t *ucmcf;
     ngx_http_upstream_health_check_peer_t      *peers, *peer;
-    ngx_core_conf_t                            *ccf;
     ngx_uint_t                                  i;
     ngx_array_t                                *peersp;
     
     ucmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_http_upstream_health_check_module);
-    ccf = (ngx_core_conf_t *) ngx_get_conf(ngx_cycle->conf_ctx, ngx_core_module);
 
-    worker_processes = ccf->worker_processes;
     peersp = &ucmcf->peers;
 
     if (peersp->nelts == 0) return NGX_OK;
@@ -1251,7 +1248,7 @@ ngx_http_upstream_health_check_update_init_timers(ngx_str_t *upstream_name, ngx_
             ngx_http_check_peer_unlock();
             continue;
         }
-        if (peer->shm->wid != (ngx_process_slot % worker_processes)) {
+        if (peer->shm->wid != ngx_process_slot) {
             ngx_http_check_peer_unlock();
             continue;
         }

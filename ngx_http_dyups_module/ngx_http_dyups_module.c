@@ -2260,12 +2260,27 @@ ngx_dyups_del_upstream_filter(ngx_http_upstream_main_conf_t *umcf, ngx_http_upst
 
 int ngx_dyups_update_server_status(ngx_str_t *upstream, ngx_str_t *server, int down)
 {
-    ngx_slab_pool_t       *shpool;
-    ngx_dyups_shctx_t     *sh;
-    ngx_rbtree_node_t     *node, *root, *sentinel;
-    ngx_dyups_upstream_t  *ups = NULL;
+    ngx_slab_pool_t              *shpool;
+    ngx_dyups_shctx_t            *sh;
+    ngx_rbtree_node_t            *node, *root, *sentinel;
+    ngx_dyups_upstream_t         *ups = NULL;
+    ngx_http_dyups_srv_conf_t    *duscf;
+    ngx_int_t                     idx = -1;
 
     if (!ngx_http_dyups_api_enable) return NGX_OK;
+
+    duscf = ngx_dyups_find_upstream(upstream, &idx);
+    if (duscf != NULL && duscf->deleted != NGX_DYUPS_DELETED) {
+        ngx_http_upstream_rr_peers_t *rr_peers = duscf->upstream->peer.data;
+        ngx_http_upstream_rr_peer_t  *rr_peer;
+        for (rr_peer = rr_peers->peer; rr_peer; rr_peer = rr_peer->next) {
+             if (rr_peer->name.len == server->len && \
+                 !ngx_strncmp(rr_peer->name.data, server->data, server->len))
+             {
+                 rr_peer->down = down;
+             }
+        }
+    }
 
     sh = ngx_dyups_global_ctx.sh;
     shpool = ngx_dyups_global_ctx.shpool;
@@ -2303,11 +2318,11 @@ ngx_dyups_update_server_status_change_content(ngx_dyups_upstream_t *ups, \
                                               ngx_str_t *server, \
                                               int down)
 {
-    ngx_slab_pool_t *shpool = ngx_dyups_global_ctx.shpool;
-    ngx_str_t *content = &ups->content;
-    size_t i, head = 0, j;
-    ngx_str_t tmp;
-    u_char *p, *q;
+    ngx_slab_pool_t              *shpool = ngx_dyups_global_ctx.shpool;
+    ngx_str_t                    *content = &ups->content;
+    size_t                        i, head = 0, j;
+    ngx_str_t                     tmp;
+    u_char                       *p, *q;
 
     for (i = 0; i < content->len; ++i) {
         if (content->data[i] == ';') {
@@ -2365,5 +2380,30 @@ static void ngx_dyups_file_unlock(int fd)
     fl.l_whence = SEEK_SET;
     fl.l_len = 0;
     fcntl(fd, F_SETLKW, &fl);
+}
+
+ngx_http_upstream_srv_conf_t *ngx_http_dyups_get_upstream_by_name(ngx_http_request_t *r, ngx_str_t *upstream)
+{
+    ngx_int_t idx = 0;
+    ngx_http_dyups_srv_conf_t *duscf;
+    size_t len;
+    u_char *low;
+    uint32_t                    hash;
+    ngx_str_t key;
+    ngx_http_variable_value_t  *vv;
+
+    len = upstream->len;
+    low = ngx_pnalloc(r->pool, len);
+    if (low == NULL) return NULL;
+    hash = ngx_hash_strlow(low, upstream->data, len);
+    key.len = len;
+    key.data = low;
+    vv = ngx_http_get_variable(r, &key, hash);
+    key.data = vv->data;
+    key.len = vv->len;
+
+    duscf = ngx_dyups_find_upstream(&key, &idx);
+    if (duscf == NULL || duscf->deleted == NGX_DYUPS_DELETED) return NULL;
+    return duscf->upstream;
 }
 
