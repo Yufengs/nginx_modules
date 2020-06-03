@@ -2392,6 +2392,8 @@ ngx_http_upstream_srv_conf_t *ngx_http_dyups_get_upstream_by_name(ngx_http_reque
     ngx_str_t key;
     ngx_http_variable_value_t  *vv;
 
+    if (!ngx_http_dyups_api_enable) return NULL;
+
     len = upstream->len;
     low = ngx_pnalloc(r->pool, len);
     if (low == NULL) return NULL;
