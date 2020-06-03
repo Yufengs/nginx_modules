@@ -1,0 +1,85 @@
+Name
+====
+
+ngx_upstream_netrb
+
+Synopsis
+========
+
+    http {
+        net_topology mynet {
+          default       /unk;         # optional
+          10.11.0.0/16  /cnc/bj/idc1;
+          10.13.0.0/16  /cnc/bj/idc1;
+          10.15.0.0/16  /cnc/bj/idc2;
+          10.12.0.0/16  /ctc/bj/idc1;
+          10.14.0.0/16  /ctc/bj/idc1;
+        }
+
+        upstream bk_resin {
+          server resin_server1:6802;
+          server resin_server2:6802;
+
+          rebalance mynet [auto|backup|nobackup];
+
+          keepalive 20;
+        }
+
+        server {
+          location /q {
+            hmux_pass bk_resin;
+          }
+        }
+    }
+
+Directives
+==========
+
+net_topology
+-------------
+**syntax:** *net_topology name { ... }*
+
+**default:** *--*
+
+**context:** *http*
+
+Define a set of net topology rules.
+
+rebalance
+---------
+**syntax:** *rebalance topology_name [auto|backup|noback];*
+            
+**default:** *None*
+            
+**context:** *upstream*
+
+
+工作过程:
+
+1. 获取本地的 IPV4 地址(忽略 127.0.0.1), 在指定的 net_topology 中获取本机所在网段的描述.
+   当本地有多个 IP 时, 第一个能在 net_topology 中找到匹配描述的为准.
+
+2. 对 upstream 里的非 backup 且非 down 的 server 逐一在指定的 net_topology 中进行匹配, 
+   第一处匹配的为准, 获取到该 server 的描述, 与步骤 1 中获取到的服务器描述比对, 获取到
+   最大匹配前缀的段数作为权值.
+
+   注意:
+   a. 按顺序匹配时, default 或 0.0.0.0/0 例外, 总在无其他匹配时在最后检测
+   b. 如果某个 server (backend) 解析出了多个 IP, 则只以第一个进行计算. 这里是忽略了配置
+      的单个 server 通过 DNS 指向多个 IP 处于不同网段的情况
+
+3. 根据 2 计算的权值和配置的模式, 对各 server 属性进行干预
+   a. 如果未指定模式(或指定为 auto), 则分两种情况
+      *) 如果存在跟服务器相同描述的后端, 则正常情况下仅使用这部分后端提供服务, 其他后端
+         都被打上 backup 标记 (类似 backup 模式). 通俗点说如果有同机房就只使用同机房的
+      *) 如果不存在跟服务器相同描述的后端, 则根据 2 计算出的权值, 重新计算所有服务器的
+         权重, 当前计算公式是   (权值 + 1) * 原 weight. (类似 nobackup) 模式
+   b. 如果指定为 backup 模式, 则权值最高的后端提供正常服务, 其他的都被放入 backup
+   c. 如果指定为 nobackup 模式, 所有机器根据前述规则重新计算权值, 均提供线上服务
+
+4. 注意:
+   a. 服务器地址和后端地址要求在 net_topology 中都能覆盖到, 否则会报错退出. 因为我们希望
+      管理员在使用该功能时明确知道自己对每个后端希望如何分配, 尤其是在开辟新机房的后端时.
+      如果这不是期望的行为, 可以通过加上 default 的覆盖所有未列出的网段
+   b. 如果所有后端计算出的权值相同, 则该模块等同于未开启, 不会进行任何干预. 这不会被认为
+      是错误

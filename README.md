@@ -6,6 +6,7 @@ Now, this repository has these modules below:
 - Upstream dynamic update module
 - Upstream health check module
 - http broadcast module
+- http traffic control module (alias: rebalance)
 
 
 
@@ -24,6 +25,7 @@ If someone want to build up new branch version, please keep these Licenses or co
 - ngx_http_dyups_module is the upstream dynamic update module, forked from https://github.com/yzprofile/ngx_http_dyups_module
 - ngx_http_upstream_check_module is the upstream health check module, forked from https://github.com/jackjiongyin/ngx_http_upstream_check_module
 - ngx_http_broadcast module is a module to send every http flow to the every server in a specified upstream.
+- ngx_upstream_netrb module is a traffic flow control tool to split traffic in a percentage.
 
 Their modules are very perfectly resolved their own job, but unfortunately, they can not work together.
 
@@ -43,7 +45,7 @@ Modules are pure nginx module, so just add them in *configure*.
 ```shell
 $ cd path-of-nginx
 $ git clone https://github.com/Water-Melon/nginx_modules.git
-$ ./configure --add-modules=nginx_modules/ngx_http_dyups_module --add-modules=nginx_modules/ngx_http_upstream_check_module --add-module=nginx_modules/ngx_http_broadcast ...
+$ ./configure --add-modules=nginx_modules/ngx_http_dyups_module --add-modules=nginx_modules/ngx_http_upstream_check_module --add-module=nginx_modules/ngx_http_broadcast -add-module=ngx_upstream_netrb ...
 $ make && make install
 ```
 
@@ -274,6 +276,129 @@ Just visit the location which set broadcast and see your upstream servers' acces
 
 
 
+#### 4.ngx_upstream_netrb
+
+This module will define some topology records with many network segments in each one of them. Then we can use directive to control them to be activated or backup, and even to set which group (ruled by directive *assign*) can get how much traffic percentage.
+
+##### Directives
+
+- **net_topology**
+
+  This is a zone block directive located in http zone.
+
+  Format:
+
+  ```
+  net_topology name {
+      default|CIDR address		alias_name;
+      ...
+  }
+  ```
+
+  *default* is optional. If there is no *default*, the first entry will be default.
+
+  We can set different network segments with alias in this block.
+
+- **rebalance**
+
+  This directive should be set in upstream block. It has only one parameter.
+
+  Format:
+
+  ```
+  upstream foo {
+     ...;
+     rebalance name;
+  }
+  ```
+
+  If *name* is off, then rebalance not work. Otherwise it works. It will get host IP addresses (maybe more then one, but just pick the first one) and find specified *net_topology* configuration by *name*. And then try to match host IP and the CIDR addresses setting in directive *net_topology*. If not matched, those mismatched upstream servers would be set backup.
+
+- **assign**
+
+  This directive should be set in upstream block. It has at least two parameters.
+
+  It is trying to set how much traffic flow percentage that group has.
+
+  Format:
+
+  ```
+  upstream foo {
+     ...;
+     assign level1-group1 level2-group1=1% level2-group2=2% ... level2-groupn;
+  }
+  ```
+
+  Level2-groups are the subset of level1-group.
+
+  Group name is depend on CIDR address' alias.
+
+  The sum of percentages can not be greater than 100%.
+
+  Let's see the configuration shown below.
+
+##### Configuration
+
+```nginx
+user root;
+daemon off;
+worker_processes  10;
+events {
+    worker_connections  1024;
+}
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile        on;
+    keepalive_timeout  65;
+    server {
+        listen       80;
+        location / {
+            proxy_pass http://test;
+        }
+    }
+    net_topology mynet {
+        10.0.0.0/24 /bbb/test; #set network segment 10.0.0.0/24 with alias "/bbb/test"
+        127.0.0.0/24 /aaa/test; #set network segment 127.0.0.0/24 with alias "/aaa/test"
+    }
+    upstream test {
+        server 10.160.87.162:8080;
+        server 10.160.87.162:8090;
+        server 127.0.0.1:8100;
+        rebalance mynet; #rebalance activated.
+        assign test /bbb/test=10% /aaa/test; #"test" is a level1-group name.
+        #It is the suffix of those two CIDR's alias. /aaa/test is the level2-group name.
+        #level2-group "/bbb/test" will get 10% traffic flow and "/aaa/test" will get rest part (90%).
+    }
+    server {
+        listen       8100;
+        server_name  127.0.0.1;
+
+        location / {
+            return 200 "8100";
+        }
+    }
+    server {
+        listen       8080;
+        server_name  10.0.0.1;
+
+        location / {
+            return 200 "1080";
+        }
+    }
+    server {
+        listen       8090;
+        server_name  10.0.0.1;
+
+        location / {
+            return 200 "1090";
+        }
+    }
+}
+```
+
+
+
 ### Example
 
 Now given a comprehensive example.
@@ -331,7 +456,6 @@ http {
             proxy_pass http://$_dyups_dyhosts;  #_dyups_ prefix variable, its value is 'dyhosts'
         }
     }
-
     server { #upstream server 8080
         listen       8080;
         server_name  127.0.0.1;
