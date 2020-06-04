@@ -25,7 +25,9 @@ If someone want to build up new branch version, please keep these Licenses or co
 - ngx_http_dyups_module is the upstream dynamic update module, forked from https://github.com/yzprofile/ngx_http_dyups_module
 - ngx_http_upstream_check_module is the upstream health check module, forked from https://github.com/jackjiongyin/ngx_http_upstream_check_module
 - ngx_http_broadcast module is a module to send every http flow to the every server in a specified upstream.
-- ngx_upstream_netrb module is a traffic flow control tool to split traffic in a percentage.
+- ngx_upstream_netrb module is a traffic flow control tool. It has two functionalities:
+  1.  Leading traffic flow to the specified servers.
+  2. Splitting input traffic by some rules in a certain percentage.
 
 Their modules are very perfectly resolved their own job, but unfortunately, they can not work together.
 
@@ -195,7 +197,7 @@ I discarded HTTP check, so this module is a TCP level health check module now.
 
 - **health_check**
 
-  This directive must be set in upstream zone. If it is set, then the upstream's health check is actived.
+  This directive must be set in upstream block. If it is set, then the upstream's health check is actived.
 
 - **health_check_shm_size**
 
@@ -223,7 +225,7 @@ upstream test {
 
 - **broadcast**
 
-  This directive can be set in location, if and limit_except zone to indicate this part of traffic flow should be broadcasted.
+  This directive can be set in location, if and limit_except block to indicate this part of traffic flows should be broadcasted.
 
   Directive has one parameter to indicate upstream name. This parameter will be treated as variable name that will be searched in nginx variables.
 
@@ -278,26 +280,37 @@ Just visit the location which set broadcast and see your upstream servers' acces
 
 #### 4.ngx_upstream_netrb
 
-This module will define some topology records with many network segments in each one of them. Then we can use directive to control them to be activated or backup, and even to set which group (ruled by directive *assign*) can get how much traffic percentage.
+This module has two functionalities:
+
+1.  Leading traffic flows to the specified servers.
+2. Splitting input traffic by some rules in a certain percentage.
+
+There is only one functionality activated.
 
 ##### Directives
 
 - **net_topology**
 
-  This is a zone block directive located in http zone.
+  This is a block directive located in http block.
 
   Format:
 
   ```
-  net_topology name {
+  net_topology name [default] {
       default|CIDR address		alias_name;
       ...
   }
   ```
 
-  *default* is optional. If there is no *default*, the first entry will be default.
+  There are two *default* here. They are both optional.
+
+  The first one indicates that this topology is a default one. If no topology set default, the first topology will be default.
+
+  The second one just like a default route. If no CIDR rules matched, default alias will be given.
 
   We can set different network segments with alias in this block.
+
+  *alias*' format: /aaa/bbb/ccc/.../nnn，divided by /.
 
 - **rebalance**
 
@@ -312,28 +325,33 @@ This module will define some topology records with many network segments in each
   }
   ```
 
-  If *name* is off, then rebalance not work. Otherwise it works. It will get host IP addresses (maybe more then one, but just pick the first one) and find specified *net_topology* configuration by *name*. And then try to match host IP and the CIDR addresses setting in directive *net_topology*. If not matched, those mismatched upstream servers would be set backup.
+  If *name* is off, then rebalance not work. Otherwise it works.
+
+  This directive has steps blow:
+
+  1. Finding topology by *name*.
+  2. Getting host's IP(s) (ignore loopback and 0.0.0.0).
+  3. Trying to match host 's IP(s) in topology's CIDR rules and get the first matched CIDR rule.
+  4. Using the CIDR rule fetched from step 3 to match all servers' IP in the upstream block. Mismatched one will be set backup.
 
 - **assign**
 
-  This directive should be set in upstream block. It has at least two parameters.
-
-  It is trying to set how much traffic flow percentage that group has.
+  This directive is used to split traffic flows specified by a rule in some percentage parts those specified by some rules.
 
   Format:
 
   ```
-  upstream foo {
+upstream foo {
      ...;
-     assign level1-group1 level2-group1=1% level2-group2=2% ... level2-groupn;
+     assign rule1 rule2=1% rule3=2% ... rulen;
   }
   ```
 
-  Level2-groups are the subset of level1-group.
+  This directive should be set in upstream block. It has at least two parameters.
 
-  Group name is depend on CIDR address' alias.
+  *rule1* is used to make sure which http traffic flows can be the input flow.
 
-  The sum of percentages can not be greater than 100%.
+  The input flow will be split in a centain percentage defined by the rest rules. The last rule's percentage can be omitted.
 
   Let's see the configuration shown below.
 
@@ -365,10 +383,10 @@ http {
         server 10.160.87.162:8080;
         server 10.160.87.162:8090;
         server 127.0.0.1:8100;
-        rebalance mynet; #rebalance activated.
-        assign test /bbb/test=10% /aaa/test; #"test" is a level1-group name.
-        #It is the suffix of those two CIDR's alias. /aaa/test is the level2-group name.
-        #level2-group "/bbb/test" will get 10% traffic flow and "/aaa/test" will get rest part (90%).
+        rebalance mynet; #topology mynet activated. directive assign is set, so 127.0.0.1:8100 will not be set as a backup.
+        assign test /bbb/test=10% /aaa/test; #"test" is the rule1. It is the suffix of those two CIDR's alias.
+        #/bbb/test is the rule2, it will get 10% input flows.
+        #/aaa/test is the last rule, it will get 90% input flows.
     }
     server {
         listen       8100;
