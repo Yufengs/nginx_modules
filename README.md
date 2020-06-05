@@ -7,6 +7,7 @@ Now, this repository has these modules below:
 - Upstream health check module
 - http broadcast module
 - http traffic control module (alias: rebalance)
+- a new load balance algorithm module
 
 
 
@@ -28,6 +29,7 @@ If someone want to build up new branch version, please keep these Licenses or co
 - ngx_upstream_netrb module is a traffic flow control tool. It has two functionalities:
   1.  Leading traffic flow to the specified servers.
   2. Splitting input traffic by some rules in a certain percentage.
+- ngx_upstream_chash module is a load balance algorithm module that allowed user to proxy http flows to a specified upstream server by a self defined rule.
 
 Their modules are very perfectly resolved their own job, but unfortunately, they can not work together.
 
@@ -47,7 +49,7 @@ Modules are pure nginx module, so just add them in *configure*.
 ```shell
 $ cd path-of-nginx
 $ git clone https://github.com/Water-Melon/nginx_modules.git
-$ ./configure --add-modules=nginx_modules/ngx_http_dyups_module --add-modules=nginx_modules/ngx_http_upstream_check_module --add-module=nginx_modules/ngx_http_broadcast -add-module=ngx_upstream_netrb ...
+$ ./configure --add-modules=nginx_modules/ngx_http_dyups_module --add-modules=nginx_modules/ngx_http_upstream_check_module --add-module=nginx_modules/ngx_http_broadcast -add-module=ngx_upstream_netrb --add-module=ngx_upstream_chash ...
 $ make && make install
 ```
 
@@ -410,6 +412,78 @@ http {
 
         location / {
             return 200 "1090";
+        }
+    }
+}
+```
+
+
+
+#### 5.ngx_upstream_chash
+
+##### Directives
+
+- **chash**
+
+  This directive defines a rule based on nginx variable. Which means user can proxy a http request to a specified upstream server depending on the variable value indicated by this directive.
+
+  This directive should be in upstream block. It has one or two parameters.
+
+  Format:
+
+  ```
+  upstream foo {
+    ...;
+    chash rule [dups=n];
+  }
+  ```
+
+  *rule* is the variable name like *$remote_addr*, *$cookie_user*, etc.
+
+  *dups* is the number of virtual nodes in consistency hash.
+
+##### Configuration
+
+```nginx
+user root;
+daemon off;
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile        on;
+    keepalive_timeout  65;
+
+    net_topology mynet {  #ngx_upstream_netrb module directive to define a topology.
+        10.0.0.0/24 /bbb/test; #10.0.0.0/24 is a remote network segment.
+        127.0.0.0/24 /aaa/test;
+    }
+    upstream test {
+        server 10.0.0.1:8080;
+        server 10.0.0.162:8090;
+        server 127.0.0.1:8080;
+        rebalance mynet; #rebalance activated.
+        assign test /bbb/test=10% /aaa/test;
+        health_check type=tcp interval=1000 fail=5 rise=1; #health check activated
+        chash "${arg_q}"; #chash activated. rule relies on argument q in URL.
+    }
+    server {
+        listen       80;
+        server_name  127.0.0.1;
+        location / {
+            proxy_pass http://test;
+        }
+    }
+    server {
+        listen       8080;
+        server_name  127.0.0.1;
+        location / {
+            return 200 "12780";
         }
     }
 }
