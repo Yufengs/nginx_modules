@@ -442,6 +442,14 @@ http {
 
   *dups* is the number of virtual nodes in consistency hash.
 
+##### Variables
+
+- **chash_uuid**
+
+  This variable is an string uuid generated while request processing.
+
+  You can use this variable with *add-header set-cookie* to set cookie for every client. Then use directive *chash* to rule proxy path.
+
 ##### Configuration
 
 ```nginx

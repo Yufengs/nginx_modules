@@ -79,6 +79,8 @@ typedef struct {
     unsigned                              use_last:1;
 } ngx_http_upstream_chash_peer_data_t;
 
+static void ngx_http_upstream_chash_uuid_generate(char *buf);
+static ngx_int_t ngx_http_upstream_chash_pre_conf(ngx_conf_t *cf);
 static void *ngx_http_upstream_chash_create_conf(ngx_conf_t *cf);
 static char *ngx_http_upstream_chash(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_http_upstream_chash_peers_t *ngx_http_upstream_chash_init_peers(ngx_pool_t *pool, \
@@ -87,6 +89,19 @@ static ngx_http_upstream_chash_peers_t *ngx_http_upstream_chash_init_peers(ngx_p
 static ngx_int_t ngx_http_upstream_init_chash_peer(ngx_http_request_t *r, ngx_http_upstream_srv_conf_t *us);
 static ngx_int_t ngx_http_upstream_get_chash_peer(ngx_peer_connection_t *pc, void *data);
 static void ngx_http_upstream_free_chash_peer(ngx_peer_connection_t *pc, void *data, ngx_uint_t state);
+static ngx_int_t ngx_http_upstream_chash_uuid(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
+
+static ngx_http_variable_t ngx_http_upstream_chash_variables[] = {
+    {
+        ngx_string("chash_uuid"),
+        NULL,
+        ngx_http_upstream_chash_uuid,
+        0,
+        NGX_HTTP_VAR_NOCACHEABLE,
+        0
+    },
+    ngx_http_null_variable
+};
 
 static ngx_command_t ngx_http_upstream_chash_commands[] = {
     {
@@ -101,7 +116,7 @@ static ngx_command_t ngx_http_upstream_chash_commands[] = {
 };
 
 static ngx_http_module_t ngx_http_upstream_chash_module_ctx = {
-    NULL,                                   /* preconfiguration */
+    ngx_http_upstream_chash_pre_conf,       /* preconfiguration */
     NULL,                                   /* postconfiguration */
     NULL,                                   /* create main configuration */
     NULL,                                   /* init main configuration */
@@ -125,6 +140,63 @@ ngx_module_t  ngx_http_upstream_chash_module = {
     NULL,                                   /* exit master */
     NGX_MODULE_V1_PADDING
 };
+
+static ngx_int_t ngx_http_upstream_chash_pre_conf(ngx_conf_t *cf)
+{
+    ngx_http_variable_t *cv, *v;
+    for (cv = ngx_http_upstream_chash_variables; cv->name.len; ++cv) {
+        v = ngx_http_add_variable(cf, &cv->name, cv->flags);
+        if (v == NULL) return NGX_ERROR;
+        *v = *cv;
+    }
+    return NGX_OK;
+}
+
+static void ngx_http_upstream_chash_uuid_generate(char *buf)
+{
+    int         n, b;
+    const char *c = "89ab";
+    for (n = 0; n < 16; ++n) {
+        b = rand() % 255;
+        switch (n) {
+            case 6:
+                sprintf(buf, "4%x", b%15 );
+                break;
+            case 8:
+                sprintf(buf, "%c%x", c[rand() % strlen(c)], b%15);
+                break;
+            default:
+                sprintf(buf, "%02x", b);
+                break;
+        }
+
+        buf += 2;
+        switch (n) {
+            case 3:
+            case 5:
+            case 7:
+            case 9:
+                *buf++ = '-';
+                break;
+        }
+    }
+    *buf = 0;
+}
+
+static ngx_int_t ngx_http_upstream_chash_uuid(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data)
+{
+    v->data = ngx_pcalloc(r->pool, 37);
+    if (v->data == NULL) return NGX_ERROR;
+
+    ngx_http_upstream_chash_uuid_generate((char *)(v->data));
+    v->len = 36;
+    v->data[v->len] = 0;
+    v->valid = 1;
+    v->no_cacheable = 1;
+    v->not_found = 0;
+
+    return NGX_OK;
+}
 
 static ngx_int_t ngx_http_upstream_init_chash(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us)
 {
