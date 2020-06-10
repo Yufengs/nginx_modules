@@ -109,7 +109,7 @@ static ngx_int_t
 ngx_http_variable_dyups_up(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_dyups_add_vars(ngx_conf_t *cf);
 static ngx_int_t ngx_http_dyups_reload();
-static void ngx_http_dyups_write_in_file(void);
+static void ngx_http_dyups_write_in_file(ngx_str_t *upstream_name, ngx_buf_t *content);
 static void ngx_dyups_file_lock(int fd);
 static void ngx_dyups_file_unlock(int fd);
 static ngx_dyups_upstream_t *ngx_dyups_search_upstream(ngx_str_t *name);
@@ -515,7 +515,6 @@ static ngx_int_t ngx_http_dyups_interface_handler(ngx_http_request_t *r)
 
     if (r->method == NGX_HTTP_DELETE) {
         ngx_int_t rc = ngx_http_dyups_do_delete(r, res);
-        ngx_http_dyups_write_in_file();
         return rc;
     }
 
@@ -1170,6 +1169,7 @@ static ngx_int_t ngx_http_dyups_do_delete(ngx_http_request_t *r, ngx_array_t *re
     name = value[1];
 
     status = ngx_dyups_delete_upstream(&name, &rv);
+    ngx_http_dyups_write_in_file(&name, NULL);
 
 finish:
     r->headers_out.status = status;
@@ -1253,7 +1253,7 @@ static void ngx_http_dyups_body_handler(ngx_http_request_t *r)
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "[dyups] post upstream name: %V", &name);
 
     status = ngx_dyups_update_upstream(&name, body, &rv);
-    ngx_http_dyups_write_in_file();
+    ngx_http_dyups_write_in_file(&name, body);
 
 finish:
     ngx_http_dyups_send_response(r, status, &rv);
@@ -1362,69 +1362,102 @@ static ngx_int_t ngx_dyups_do_update(ngx_str_t *name, ngx_buf_t *buf, ngx_str_t 
     return NGX_HTTP_OK;
 }
 
-static void ngx_http_dyups_write_in_file(void)
+static void ngx_http_dyups_write_in_file(ngx_str_t *upstream_name, ngx_buf_t *content)
 {
-    int                         fd;
+    int                         fd, in_zone = 0;
     size_t                      i, len;
     char                        path[1024];
-    u_char                     *p, *q, *end;
-    ngx_dyups_shctx_t          *sh;
-    ngx_rbtree_node_t          *node, *root, *sentinel;
-    ngx_dyups_upstream_t       *ups;
+    u_char                     *p, *q, *end, *file_content;
     ngx_http_dyups_main_conf_t *dumcf;
-    ngx_slab_pool_t            *shpool;
+    struct stat                 st;
 
-    shpool = ngx_dyups_global_ctx.shpool;
-    sh = ngx_dyups_global_ctx.sh;
-
-    if (!ngx_http_dyups_api_enable) return;
+    if (!ngx_http_dyups_api_enable || !upstream_name->len) return;
 
     dumcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_http_dyups_module);
     if (!dumcf->file_path.len) return;
 
-    ngx_shmtx_lock(&shpool->mutex);
-    sentinel = sh->rbtree.sentinel;
-    root = sh->rbtree.root;
-
     len = dumcf->file_path.len >= sizeof(path)? sizeof(path)-1: dumcf->file_path.len;
     memcpy(path, dumcf->file_path.data, len);
     path[len] = 0;
-    fd = open(path, O_WRONLY|O_CREAT|O_TRUNC, 0755);
+
+    if (!access(path, F_OK)) {
+        fd = open(path, O_RDWR);
+    } else {
+        fd = open(path, O_RDWR|O_CREAT, 0755);
+    }
     if (fd < 0) {
-        ngx_shmtx_unlock(&shpool->mutex);
         return;
     }
     ngx_dyups_file_lock(fd);
-    if (root != sentinel) {
-        for (node = ngx_rbtree_min(root, sentinel); \
-             node; \
-             node = ngx_rbtree_next(&sh->rbtree, node))
-        {
-            ups = (ngx_dyups_upstream_t*)((char*) node - offsetof(ngx_dyups_upstream_t, node));
-            write(fd, "upstream ", 9);
-            write(fd, ups->name.data, ups->name.len);
-            write(fd, " {\n", 3);
-            for (p = ups->content.data, i = 0; i < ups->content.len; ++i) {
-                if (ups->content.data[i] == ';') {
-                    end = &(ups->content.data[i]);
-                    write(fd, "  ", 2);
-                    for (q = p; q > end; ++q) {
-                         if (*q == 'd' && end - q > 4 && !memcmp(q, "down", 4)) {
-                             end = q;
-                             break;
-                         }
-                    }
-                    write(fd, p, end-p);
-                    write(fd, ";\n", 2);
-                    p = &(ups->content.data[i]) + 1;
-                }
+
+    if (fstat(fd, &st) != 0) {
+        goto failed;
+    }
+    file_content = mmap(NULL, st.st_size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+    if (file_content == NULL) {
+        goto failed;
+    }
+
+    for (p = file_content, end = file_content + st.st_size; p < end; ++p) {
+        if (*p == 'u' && end-p > 8 && !ngx_strncmp(p, "upstream", 8)) {
+            q = p;
+            p += 8;
+            for (; p < end; ++p) {
+                if (*p != ' ' && *p != '\t' && *p != '\n') break;
             }
-            write(fd, "}\n", 2);
+            if (p >= end) break;
+            if (*p == upstream_name->data[0]
+                && (size_t)(end-p) > upstream_name->len
+                && !ngx_strncmp(p, upstream_name->data, upstream_name->len))
+            {
+                p += upstream_name->len;
+                for (; p < end; ++p) {
+                    if (*p != ' ' && *p != '\t' && *p != '\n') break;
+                }
+                if (p >= end) break;
+                if (*p != '{') {
+                    --p;
+                    break;
+                }
+                ++in_zone;
+                for (++p; p < end; ++p) {
+                    if (*p == '{') {
+                        ++in_zone;
+                        continue;
+                    }
+                    if (*p == '}') {
+                        --in_zone;
+                        if (!in_zone) break;
+                        continue;
+                    }
+                }
+                memset(q, ' ', p + 1 - q);
+                break;
+            }
         }
     }
+
+    if (content != NULL) {
+        munmap(file_content, st.st_size);
+        lseek(fd, 0, SEEK_END);
+        write(fd, "upstream ", 9);
+        write(fd, upstream_name->data, upstream_name->len);
+        write(fd, " {\n", 3);
+        for (p = content->start, i = 0, len = content->last - content->start; i < len; ++i) {
+            if (content->start[i] == ';') {
+                end = &(content->start[i]);
+                write(fd, "  ", 2);
+                write(fd, p, end - p);
+                write(fd, ";\n", 2);
+                p = &(content->start[i]) + 1;
+            }
+        }
+        write(fd, "}\n", 2);
+    }
+
+failed:
     ngx_dyups_file_unlock(fd);
     close(fd);
-    ngx_shmtx_unlock(&shpool->mutex);
 }
 
 static ngx_int_t ngx_dyups_sandbox_update(ngx_buf_t *buf, ngx_str_t *rv)
