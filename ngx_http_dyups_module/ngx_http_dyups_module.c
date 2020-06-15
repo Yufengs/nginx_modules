@@ -1436,9 +1436,9 @@ static void ngx_http_dyups_write_in_file(ngx_str_t *upstream_name, ngx_buf_t *co
             }
         }
     }
+    munmap(file_content, st.st_size);
 
     if (content != NULL) {
-        munmap(file_content, st.st_size);
         lseek(fd, 0, SEEK_END);
         write(fd, "upstream ", 9);
         write(fd, upstream_name->data, upstream_name->len);
