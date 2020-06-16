@@ -8,6 +8,7 @@ Now, this repository has these modules below:
 - http broadcast module
 - http traffic control module (alias: rebalance)
 - a new load balance algorithm module
+- Location dynamic update module
 
 
 
@@ -30,6 +31,7 @@ If someone want to build up new branch version, please keep these Licenses or co
   1.  Leading traffic flow to the specified servers.
   2. Splitting input traffic by some rules in a certain percentage.
 - ngx_upstream_chash module is a load balance algorithm module that allowed user to proxy http flows to a specified upstream server by a self defined rule.
+- ngx_http_dyloc_module is used to create or remove location dynamically without any reload.
 
 Their modules are very perfectly resolved their own job, but unfortunately, they can not work together.
 
@@ -49,7 +51,13 @@ Modules are pure nginx module, so just add them in *configure*.
 ```shell
 $ cd path-of-nginx
 $ git clone https://github.com/Water-Melon/nginx_modules.git
-$ ./configure --add-modules=nginx_modules/ngx_http_dyups_module --add-modules=nginx_modules/ngx_http_upstream_check_module --add-module=nginx_modules/ngx_http_broadcast -add-module=ngx_upstream_netrb --add-module=ngx_upstream_chash ...
+$ ./configure --add-modules=nginx_modules/ngx_http_dyups_module \
+              --add-modules=nginx_modules/ngx_http_upstream_check_module \
+              --add-module=nginx_modules/ngx_http_broadcast \
+              --add-module=ngx_upstream_netrb \
+              --add-module=ngx_upstream_chash \
+              --add-module=ngx_http_dyloc_module \
+              ...
 $ make && make install
 ```
 
@@ -495,6 +503,96 @@ http {
         }
     }
 }
+```
+
+
+
+#### 6.ngx_http_dyloc_module
+
+This module do not support nonane location, nesting location and limit_except.
+
+Using this module, memory **leak** will be happened, but just a little.
+
+##### Directives
+
+- **dyloc_interface**
+
+  This directive is set in a location which will be used as a control URI.
+
+- **dyloc_shm_size**
+
+  This directive indicates the shared-memory size that module used.
+
+  Its context is *MAIN* which means *http* block.
+
+- **dyloc_dir_path**
+
+  This directive indicates a directory path that store files those record all dynamic locations.
+
+  Its context is *MAIN* which means *http* block.
+
+##### Variables
+
+- **dyloc_sync**
+
+  This variable can not be read, because its *get_handler* is NULL.
+
+  This variable will be used to synchronize dynamic locations among worker processes.
+
+  **Suggestion**: This variable is set in *server* block better than in *location*.
+
+##### Configuration
+
+```nginx
+user root;
+daemon off;
+worker_processes  3;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile        on;
+    keepalive_timeout  65;
+
+    dyloc_dir_path "/tmp"; #all dynamic locations will be write in /tmp.
+                           #but different server has different file.
+                           #file name's format is: server_name_port
+                           #e.g. /tmp/127.0.0.1_80
+    dyloc_shm_size 30M; #set shm size, it's an optional directive, default is 10M.
+
+    server {
+        set $dyloc_sync 1; #set variable, value can be anything but will not be used.
+        listen       8080;
+        server_name  127.0.0.1;
+        location / {
+            dyloc_interface; #control interface.
+        }
+    }
+    server {
+        listen       80;
+        server_name  127.0.0.1;
+        set $dyloc_sync 1; #set variable for sync
+    }
+}
+```
+
+##### APIs
+
+```shell
+#add a location
+$ curl -XPOST -d "location = /foo {return 503;}" "http://127.0.0.1:8080/add?server_name=127.0.0.1&port=80"
+#del a location
+$ curl -XPOST -d "location = /foo {return 503;}" "http://127.0.0.1:8080/del?server_name=127.0.0.1&port=80"
+#add a regex location
+$ curl -XPOST -d "location ~ \.php$ {return 200;}" "http://127.0.0.1:8080/add?server_name=127.0.0.1&port=80"
+#add a named location
+$ curl -XPOST -d "location @test {return 403;}" "http://127.0.0.1:8080/add?server_name=127.0.0.1&port=80"
+#of course, cooperate with dynamic upstream will be more flexible.
+$ curl -XPOST -d "location /foo {proxy_pass http://$_dyups_uptest;}" "http://127.0.0.1:8080/add?server_name=127.0.0.1&port=80"
 ```
 
 
