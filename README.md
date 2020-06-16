@@ -328,7 +328,7 @@ There is only one functionality activated.
 
   **Format**
 
-  ```
+  ```nginx
   upstream foo {
      ...;
      rebalance name;
@@ -350,7 +350,7 @@ There is only one functionality activated.
 
   **Format**
 
-  ```
+  ```nginx
 upstream foo {
      ...;
      assign rule1 rule2=1% rule3=2% ... rulen;
