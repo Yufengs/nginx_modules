@@ -348,7 +348,7 @@ There is only one functionality activated.
 
   This directive is used to split traffic flows specified by a rule in some percentage parts those specified by some rules.
 
-  **Format**
+  **Format** 
 
   ```nginx
 upstream foo {
@@ -357,12 +357,14 @@ upstream foo {
   }
   ```
 
+  
+
   This directive should be set in upstream block. It has at least two parameters.
 
   *rule1* is used to make sure which http traffic flows can be the input flow.
 
   The input flow will be split in a centain percentage defined by the rest rules. The last rule's percentage can be omitted.
-
+  
   Let's see the configuration shown below.
 
 ##### Configuration
