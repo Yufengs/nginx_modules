@@ -326,7 +326,7 @@ There is only one functionality activated.
 
   This directive should be set in upstream block. It has only one parameter.
 
-  Format:
+  **Format**
 
   ```
   upstream foo {
@@ -348,7 +348,7 @@ There is only one functionality activated.
 
   This directive is used to split traffic flows specified by a rule in some percentage parts those specified by some rules.
 
-  Format:
+  **Format**
 
   ```
 upstream foo {
