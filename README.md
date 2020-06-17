@@ -26,11 +26,11 @@ If someone want to build up new branch version, please keep these Licenses or co
 
 - ngx_http_dyups_module is the upstream dynamic update module, forked from https://github.com/yzprofile/ngx_http_dyups_module
 - ngx_http_upstream_check_module is the upstream health check module, forked from https://github.com/jackjiongyin/ngx_http_upstream_check_module
-- ngx_http_broadcast module is a module to send every http flow to the every server in a specified upstream.
-- ngx_upstream_netrb module is a traffic flow control tool. It has two functionalities:
+- ngx_http_broadcast_module is a module to send every http flow to the every server in a specified upstream.
+- ngx_upstream_netrb_module is a traffic flow control tool. It has two functionalities:
   1.  Leading traffic flow to the specified servers.
   2. Splitting input traffic by some rules in a certain percentage.
-- ngx_upstream_chash module is a load balance algorithm module that allowed user to proxy http flows to a specified upstream server by a self defined rule.
+- ngx_upstream_chash_module is a load balance algorithm module that allowed user to proxy http flows to a specified upstream server by a self defined rule.
 - ngx_http_dyloc_module is used to create or remove location dynamically without any reload.
 
 Their modules are very perfectly resolved their own job, but unfortunately, they can not work together.
@@ -46,16 +46,16 @@ Modules are pure nginx module, so just add them in *configure*.
 **Notice**:
 
 1. ngx_http_dyups_module and ngx_http_upstream_check_module must be added simultaneously.
-2. If you want to add ngx_http_broadcast module, ngx_http_dyups_module must be added simultaneously.
+2. If you want to add ngx_http_broadcast_module, ngx_http_dyups_module must be added simultaneously.
 
 ```shell
 $ cd path-of-nginx
 $ git clone https://github.com/Water-Melon/nginx_modules.git
 $ ./configure --add-modules=nginx_modules/ngx_http_dyups_module \
               --add-modules=nginx_modules/ngx_http_upstream_check_module \
-              --add-module=nginx_modules/ngx_http_broadcast \
-              --add-module=ngx_upstream_netrb \
-              --add-module=ngx_upstream_chash \
+              --add-module=nginx_modules/ngx_http_broadcast_module \
+              --add-module=ngx_upstream_netrb_module \
+              --add-module=ngx_upstream_chash_module \
               --add-module=ngx_http_dyloc_module \
               ...
 $ make && make install
@@ -229,7 +229,7 @@ upstream test {
 
 
 
-#### 3. ngx_http_broadcast
+#### 3. ngx_http_broadcast_module
 
 ##### Directives
 
@@ -288,7 +288,7 @@ Just visit the location which set broadcast and see your upstream servers' acces
 
 
 
-#### 4.ngx_upstream_netrb
+#### 4.ngx_upstream_netrb_module
 
 This module has two functionalities:
 
@@ -428,7 +428,7 @@ http {
 
 
 
-#### 5.ngx_upstream_chash
+#### 5.ngx_upstream_chash_module
 
 ##### Directives
 
@@ -476,7 +476,7 @@ http {
     sendfile        on;
     keepalive_timeout  65;
 
-    net_topology mynet {  #ngx_upstream_netrb module directive to define a topology.
+    net_topology mynet {  #ngx_upstream_netrb_module directive to define a topology.
         10.0.0.0/24 /bbb/test; #10.0.0.0/24 is a remote network segment.
         127.0.0.0/24 /aaa/test;
     }

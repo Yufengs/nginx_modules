@@ -125,15 +125,15 @@ static ngx_int_t ngx_http_upstream_init_netrb(ngx_conf_t *cf, ngx_http_upstream_
 {
     ngx_int_t                               i, n, m;
     ngx_int_t                               backup_count;
-    ngx_int_t                              *group_weight;
+    ngx_int_t                              *group_weight = NULL;
     ngx_int_t                               do_assign;
-    ngx_str_t                              *serv, *bakv, *name, *upstream;
+    ngx_str_t                              *serv = NULL, *bakv, *name, *upstream;
     ngx_http_upstream_server_t             *server;
     ngx_http_upstream_netrb_addr_t         *ntaddr;
     ngx_http_upstream_netrb_server_t       *msrv;
     ngx_http_upstream_netrb_topology_t     *nt;
     ngx_http_upstream_netrb_srv_conf_t     *iscf;
-    ngx_http_upstream_netrb_location_t     *loc, **ploc;
+    ngx_http_upstream_netrb_location_t     *loc = NULL, **ploc;
     ngx_http_upstream_netrb_main_conf_t    *imcf;
 
     upstream = &us->host;
