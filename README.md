@@ -9,6 +9,7 @@ Now, this repository has these modules below:
 - http traffic control module (alias: rebalance)
 - a new load balance algorithm module
 - Location dynamic update module
+- MP4 and its limit rate module
 
 
 
@@ -40,6 +41,7 @@ We use QQ (in China), group number is: **176827801**
   2. Splitting input traffic by some rules in a certain percentage.
 - ngx_upstream_chash_module is a load balance algorithm module that allowed user to proxy http flows to a specified upstream server by a self defined rule.
 - ngx_http_dyloc_module is used to create or remove location dynamically without any reload.
+- ngx_http_mp4_module is modified from origin mp4 module. I also add a filter for limit rate based on MP4 timeline.
 
 Their modules are very perfectly resolved their own job, but unfortunately, they can not work together.
 
@@ -65,6 +67,7 @@ $ ./configure --add-modules=nginx_modules/ngx_http_dyups_module \
               --add-module=ngx_upstream_netrb_module \
               --add-module=ngx_upstream_chash_module \
               --add-module=ngx_http_dyloc_module \
+              --add-module=ngx_http_mp4_module \
               ...
 $ make && make install
 ```
@@ -602,6 +605,74 @@ $ curl -XPOST -d "location ~ \.php$ {return 200;}" "http://127.0.0.1:8080/add?se
 $ curl -XPOST -d "location @test {return 403;}" "http://127.0.0.1:8080/add?server_name=127.0.0.1&port=80"
 #of course, cooperate with dynamic upstream will be more flexible.
 $ curl -XPOST -d "location /foo {proxy_pass http://$_dyups_uptest;}" "http://127.0.0.1:8080/add?server_name=127.0.0.1&port=80"
+```
+
+
+
+#### 7.ngx_http_mp4_module
+
+This module is modifed from origin module. I added some pieces of code for calculating MP4 timeline. And then use the filter that in this module to limit rate based on MP4 timeline.
+
+##### Directives
+
+- **mp4**
+
+- **mp4_buffer_size**
+
+- **mp4_max_buffer_size**
+
+  These three directives is the same to the original.
+
+- **rlimit**
+
+  This directive is used to activate MP4 filter. It's *flag* type, so it has one parameter which is *on* or *off*.
+
+  Context: *location*
+
+- **rlimit_begoff**
+
+  This directive indicates how long that the first vedio block time is.
+
+  It has one parameter that indicates the time second.
+
+  Context: *location*
+
+- **rlimit_steplen**
+
+  This directive indicates how long that the rest vedio block time is.
+
+  It has one parameter that indicates the time second.
+
+  Context: *location*
+
+##### Configuration
+
+```nginx
+user root;
+daemon off;
+worker_processes  3;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile        on;
+    keepalive_timeout  65;
+
+    server {
+        listen       80;
+        server_name  127.0.0.1;
+        location / {
+            mp4;
+            rlimit on;
+            rlimit_begoff 16; # first vedio block has 16 seconds
+            rlimit_steplen 4; # each of the rest vedio blocks is 4 seconds
+        }
+    }
+}
 ```
 
 
