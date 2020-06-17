@@ -22,6 +22,14 @@ If someone want to build up new branch version, please keep these Licenses or co
 
 
 
+### Contact
+
+If you are interested in this project, welcome to our chat group.
+
+We use QQ (in China), group number is: **176827801**
+
+
+
 ### Introduction
 
 - ngx_http_dyups_module is the upstream dynamic update module, forked from https://github.com/yzprofile/ngx_http_dyups_module
