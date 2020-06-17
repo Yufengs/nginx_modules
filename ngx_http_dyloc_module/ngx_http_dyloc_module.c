@@ -1318,6 +1318,7 @@ ngx_http_dyloc_set_location(ngx_http_dyloc_main_conf_t *dmcf, \
         if (tmp == NULL) return NGX_ERROR;
         if (pclcf->regex_locations != NULL) {
             memcpy(tmp, pclcf->regex_locations, n * sizeof(ngx_http_core_loc_conf_t *));
+            ngx_pfree(cf->pool, pclcf->regex_locations);
         }
         tmp[n] = clcf;
         tmp[n + 1] = NULL;
@@ -1345,6 +1346,7 @@ ngx_http_dyloc_set_location(ngx_http_dyloc_main_conf_t *dmcf, \
         if (tmp == NULL) return NGX_ERROR;
         if (cscf->named_locations != NULL) {
             memcpy(tmp, cscf->named_locations, n * sizeof(ngx_http_core_loc_conf_t *));
+            ngx_pfree(cf->pool, cscf->named_locations);
         }
         tmp[n] = clcf;
         tmp[n + 1] = NULL;
@@ -1678,6 +1680,7 @@ static ngx_int_t ngx_http_dyloc_remove_location(ngx_http_request_t *r, ngx_http_
             memcpy(tmp, pclcf->regex_locations, i * sizeof(ngx_http_core_loc_conf_t *));
             memcpy(tmp+i, &pclcf->regex_locations[i+1], (n - i - 1) * sizeof(ngx_http_core_loc_conf_t *));
             tmp[n] = NULL;
+            ngx_pfree(dmcf->pool, pclcf->regex_locations);
         }
         pclcf->regex_locations = tmp;
         return NGX_OK;
@@ -1704,6 +1707,7 @@ static ngx_int_t ngx_http_dyloc_remove_location(ngx_http_request_t *r, ngx_http_
             memcpy(tmp, cscf->named_locations, i * sizeof(ngx_http_core_loc_conf_t *));
             memcpy(tmp+i, &cscf->named_locations[i+1], (n - i - 1) * sizeof(ngx_http_core_loc_conf_t *));
             tmp[n] = NULL;
+            ngx_pfree(dmcf->pool, cscf->named_locations);
         }
         cscf->named_locations = tmp;
         return NGX_OK;
@@ -2151,6 +2155,7 @@ static void ngx_http_dyloc_sync_del(ngx_http_request_t *r, ngx_http_dyloc_server
             memcpy(tmp, pclcf->regex_locations, i * sizeof(ngx_http_core_loc_conf_t *));
             memcpy(tmp+i, &pclcf->regex_locations[i+1], (n - i - 1) * sizeof(ngx_http_core_loc_conf_t *));
             tmp[n] = NULL;
+            ngx_pfree(dmcf->pool, pclcf->regex_locations);
         }
         pclcf->regex_locations = tmp;
         return;
@@ -2177,6 +2182,7 @@ static void ngx_http_dyloc_sync_del(ngx_http_request_t *r, ngx_http_dyloc_server
             memcpy(tmp, cscf->named_locations, i * sizeof(ngx_http_core_loc_conf_t *));
             memcpy(tmp+i, &cscf->named_locations[i+1], (n - i - 1) * sizeof(ngx_http_core_loc_conf_t *));
             tmp[n] = NULL;
+            ngx_pfree(dmcf->pool, cscf->named_locations);
         }
         cscf->named_locations = tmp;
         return;
