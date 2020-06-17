@@ -3181,7 +3181,7 @@ ngx_http_mp4_calc_time_point(ngx_http_request_t *r, \
                              ngx_http_mp4_file_t *mp4, \
                              ngx_http_mp4_trak_t *trak)
 {
-    ngx_mp4_sample_t sample = {0, 0}, last_sample = {0, 0};
+    ngx_mp4_sample_t sample = {0, 0};
     ngx_int_t rc;
     size_t last_offset = 0, send_size;
     double begoff_sec = (double)conf->begoff_sec, steplen_sec = (double)conf->steplen_sec;
@@ -3191,7 +3191,6 @@ ngx_http_mp4_calc_time_point(ngx_http_request_t *r, \
         if (sample.timepoint == 0) {
             break;
         }
-        last_sample = sample;
         if (sample.timepoint < end_timepoint) {
             continue;
         }
