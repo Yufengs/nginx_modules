@@ -1786,7 +1786,10 @@ ngx_http_dyloc_location_static_del(ngx_http_request_t *r, \
 static ngx_http_core_loc_conf_t *
 ngx_http_dyloc_location_collect(ngx_array_t *array, ngx_http_location_tree_node_t *node, ngx_http_core_loc_conf_t *del_clcf)
 {
-    ngx_http_core_loc_conf_t *clcf, **pclcf, *ret = NULL, *rv;
+    ngx_http_core_loc_conf_t    *clcf, **pclcf, *ret = NULL, *rv;
+    ngx_http_dyloc_main_conf_t  *dmcf;
+
+    dmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_http_dyloc_module);
 
     if (node->exact != NULL) {
         clcf = node->exact;
@@ -1834,6 +1837,8 @@ ngx_http_dyloc_location_collect(ngx_array_t *array, ngx_http_location_tree_node_
         rv = ngx_http_dyloc_location_collect(array, node->tree, del_clcf);
         ret = ret != NULL? ret: rv;
     }
+
+    ngx_pfree(dmcf->pool, node);
 
     return ret;
 }
