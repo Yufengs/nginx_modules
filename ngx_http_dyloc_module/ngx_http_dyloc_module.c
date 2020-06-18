@@ -972,24 +972,28 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
                                                 ngx_buf_t *buf, \
                                                 ngx_str_t *rs)
 {
-    char                       *rv;
-    u_char                     *mod;
-    size_t                      len;
-    ngx_str_t                  *value, *name;
-    ngx_uint_t                  i, mi;
-    ngx_conf_t                  save;
-    ngx_http_module_t          *module;
-    ngx_http_conf_ctx_t        *ctx, *pctx, *http_ctx;
-    ngx_http_core_loc_conf_t   *clcf;
-    ngx_array_t                *args;
-    ngx_buf_t                   b;
-    ngx_conf_t                  cf;
-    ngx_http_dyloc_main_conf_t *dmcf;
-    ngx_conf_file_t             conf_file;
-    ngx_cycle_t                *cycle = (ngx_cycle_t *)ngx_cycle;
-    ngx_pool_t                 *temp_pool;
+    char                           *rv;
+    u_char                         *mod;
+    size_t                          len;
+    ngx_str_t                      *value, *name;
+    ngx_uint_t                      i, mi;
+    ngx_conf_t                      save;
+    ngx_http_module_t              *module;
+    ngx_http_conf_ctx_t            *ctx, *pctx, *http_ctx;
+    ngx_http_core_loc_conf_t       *clcf;
+    ngx_array_t                    *args;
+    ngx_buf_t                       b;
+    ngx_conf_t                      cf;
+    ngx_http_dyloc_main_conf_t     *dmcf;
+    ngx_conf_file_t                 conf_file;
+    ngx_cycle_t                    *cycle = (ngx_cycle_t *)ngx_cycle;
+    ngx_pool_t                     *temp_pool;
+    ngx_http_upstream_main_conf_t  *umcf;
+    ngx_http_core_main_conf_t      *cmcf;
 
     dmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_http_dyloc_module);
+    umcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_http_upstream_module);
+    cmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_http_core_module);
 
     /* init http ctx */
     ngx_memzero(&conf_file, sizeof(ngx_conf_file_t));
@@ -1099,6 +1103,7 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
     cf.pool = dmcf->pool;
     cf.ctx = srv->server->ctx;
     cf.cycle = (ngx_cycle_t *) ngx_cycle;
+    ngx_rbtree_init(&cf.cycle->config_dump_rbtree, &cf.cycle->config_dump_sentinel, ngx_str_rbtree_insert_value);
     cf.args = args;
     cf.log = ngx_cycle->log;
     
@@ -1244,6 +1249,9 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
     cf.cmd_type = NGX_HTTP_LOC_CONF;
     cf.conf_file = &conf_file;
 
+    ((ngx_http_conf_ctx_t *)(cf.ctx))->main_conf[ngx_http_upstream_module.ctx_index] = umcf;
+    ((ngx_http_conf_ctx_t *)(cf.ctx))->main_conf[ngx_http_core_module.ctx_index] = cmcf;
+
     rv = ngx_conf_parse(&cf, NULL);
     if (rv == NGX_CONF_ERROR) {
         ngx_destroy_pool(temp_pool);
@@ -1271,6 +1279,7 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
             }
         }
     }
+
 
     if (ngx_http_dyloc_set_location(dmcf, &cf, srv, clcf) != NGX_OK) {
         ngx_destroy_pool(temp_pool);
