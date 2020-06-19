@@ -235,8 +235,6 @@ static void *ngx_http_upstream_health_check_create_main_conf(ngx_conf_t *cf)
         return NULL;
     }
 
-    check_main_conf = conf;
-
     return conf;
 }
 
@@ -664,6 +662,8 @@ static ngx_int_t ngx_http_upstream_health_check_init_process(ngx_cycle_t *cycle)
 
     ucmcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_upstream_health_check_module);
     if (ucmcf == NULL) return NGX_OK;
+
+    check_main_conf = ucmcf;
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, cycle->log, 0, "[check] init process: begin, %P", ngx_pid);
 

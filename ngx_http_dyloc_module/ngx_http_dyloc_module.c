@@ -111,6 +111,8 @@ static void ngx_http_dyloc_file_lock(int fd);
 static void ngx_http_dyloc_file_unlock(int fd);
 static void ngx_http_dyloc_variable_sync_set_handler(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
 static void ngx_http_dyloc_sync_del(ngx_http_request_t *r, ngx_http_dyloc_server_t *srv, ngx_http_dyloc_location_t *loc);
+static ngx_int_t ngx_http_dyloc_init_phases(ngx_conf_t *cf, ngx_http_core_main_conf_t *cmcf);
+static ngx_int_t ngx_http_dyloc_init_headers_in_hash(ngx_conf_t *cf, ngx_http_core_main_conf_t *cmcf);
 
 
 static ngx_http_dyloc_loc_chain_t *g_shm_chain = NULL;
@@ -979,7 +981,7 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
     ngx_uint_t                      i, mi;
     ngx_conf_t                      save;
     ngx_http_module_t              *module;
-    ngx_http_conf_ctx_t            *ctx, *pctx, *http_ctx;
+    ngx_http_conf_ctx_t            *ctx, *pctx, *http_ctx, saved;
     ngx_http_core_loc_conf_t       *clcf;
     ngx_array_t                    *args;
     ngx_buf_t                       b;
@@ -990,6 +992,8 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
     ngx_pool_t                     *temp_pool;
     ngx_http_upstream_main_conf_t  *umcf;
     ngx_http_core_main_conf_t      *cmcf;
+    ngx_http_upstream_srv_conf_t  **uscfp;
+    ngx_list_t                      saved_list;
 
     dmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_http_dyloc_module);
     umcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_http_upstream_module);
@@ -998,6 +1002,8 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
     /* init http ctx */
     ngx_memzero(&conf_file, sizeof(ngx_conf_file_t));
     conf_file.file.fd = NGX_INVALID_FILE;
+    conf_file.file.name.data = (u_char *)"dynamic_location";
+    conf_file.file.name.len = 16;
     ngx_memzero(&cf, sizeof(ngx_conf_t));
     cf.module_type = NGX_HTTP_MODULE;
     cf.cmd_type = NGX_HTTP_MAIN_CONF;
@@ -1240,6 +1246,8 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
 
     ngx_memzero(&conf_file, sizeof(ngx_conf_file_t));
     conf_file.file.fd = NGX_INVALID_FILE;
+    conf_file.file.name.data = (u_char *)"dynamic_location";
+    conf_file.file.name.len = 16;
     conf_file.buffer = &b;
     cf.log = ngx_cycle->log;
     cf.name = "dyloc_init_module_conf";
@@ -1249,8 +1257,7 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
     cf.cmd_type = NGX_HTTP_LOC_CONF;
     cf.conf_file = &conf_file;
 
-    ((ngx_http_conf_ctx_t *)(cf.ctx))->main_conf[ngx_http_upstream_module.ctx_index] = umcf;
-    ((ngx_http_conf_ctx_t *)(cf.ctx))->main_conf[ngx_http_core_module.ctx_index] = cmcf;
+    http_ctx->main_conf[ngx_http_upstream_module.ctx_index] = umcf;
 
     rv = ngx_conf_parse(&cf, NULL);
     if (rv == NGX_CONF_ERROR) {
@@ -1260,6 +1267,16 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
     }
 
     cf = save;
+    cf.ctx = http_ctx;
+    cf.cmd_type = NGX_HTTP_MAIN_CONF;
+    cmcf = http_ctx->main_conf[ngx_http_core_module.ctx_index];
+    saved_list = cf.cycle->shared_memory;
+    if (ngx_list_init(&cf.cycle->shared_memory, temp_pool, 1, sizeof(ngx_shm_zone_t)) != NGX_OK)
+    {
+        ngx_destroy_pool(temp_pool);
+        ngx_str_set(rs, "init shared_memory failed\n");
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
 
     for (i = 0; cf.cycle->modules[i]; i++) {
         if (cf.cycle->modules[i]->type != NGX_HTTP_MODULE) {
@@ -1267,6 +1284,25 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
         }
 
         module = cf.cycle->modules[i]->ctx;
+        mi = cf.cycle->modules[i]->ctx_index;
+        if (module->init_main_conf) {
+            if (module->init_main_conf(&cf, http_ctx->main_conf[mi]) != NGX_CONF_OK) {
+                ngx_destroy_pool(temp_pool);
+                ngx_str_set(rs, "init main conf failed\n");
+                uscfp = umcf->upstreams.elts;
+                for (i = 0; i < umcf->upstreams.nelts; ++i) {
+                    if (uscfp[i]->srv_conf == NULL) {
+                        ngx_pfree(cf.pool, uscfp[i]);
+                        uscfp[i] = NULL;
+                        umcf->upstreams.nelts = i;
+                        break;
+                    }
+                }
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+        }
+        saved = *http_ctx;
+        http_ctx->srv_conf = srv->server->ctx->srv_conf;
 
         if (module->merge_loc_conf) {
             if (module->merge_loc_conf(&cf, \
@@ -1278,8 +1314,9 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
                 return NGX_HTTP_INTERNAL_SERVER_ERROR;
             }
         }
+        *http_ctx = saved;
     }
-
+    cf.cycle->shared_memory = saved_list;
 
     if (ngx_http_dyloc_set_location(dmcf, &cf, srv, clcf) != NGX_OK) {
         ngx_destroy_pool(temp_pool);
@@ -1287,12 +1324,145 @@ static ngx_int_t ngx_http_dyloc_create_location(ngx_http_core_loc_conf_t **ppclc
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
+    if (ngx_http_dyloc_init_phases(&cf, cmcf) != NGX_OK) {
+        ngx_destroy_pool(temp_pool);
+        ngx_str_set(rs, "init phases failed\n");
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    if (ngx_http_dyloc_init_headers_in_hash(&cf, cmcf) != NGX_OK) {
+        ngx_destroy_pool(temp_pool);
+        ngx_str_set(rs, "init headers in hash failed\n");
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    for (i = 0; cf.cycle->modules[i]; i++) {
+        if (cf.cycle->modules[i]->type != NGX_HTTP_MODULE) {
+            continue;
+        }
+
+        module = cf.cycle->modules[i]->ctx;
+
+        if (module->postconfiguration) {
+            if (module->postconfiguration(&cf) != NGX_OK) {
+                ngx_destroy_pool(temp_pool);
+                ngx_str_set(rs, "postconfiguration failed\n");
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+        }
+    }
+    if (ngx_http_variables_init_vars(&cf) != NGX_OK) {
+        ngx_destroy_pool(temp_pool);
+        ngx_str_set(rs, "variables init failed\n");
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+
     ngx_destroy_pool(temp_pool);
 
     *ppclcf = clcf;
     ngx_str_set(rs, "Succeed\n");
 
     return NGX_HTTP_OK;
+}
+
+static ngx_int_t ngx_http_dyloc_init_phases(ngx_conf_t *cf, ngx_http_core_main_conf_t *cmcf)
+{
+    if (ngx_array_init(&cmcf->phases[NGX_HTTP_POST_READ_PHASE].handlers,
+                       cf->pool, 1, sizeof(ngx_http_handler_pt))
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    if (ngx_array_init(&cmcf->phases[NGX_HTTP_SERVER_REWRITE_PHASE].handlers,
+                       cf->pool, 1, sizeof(ngx_http_handler_pt))
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    if (ngx_array_init(&cmcf->phases[NGX_HTTP_REWRITE_PHASE].handlers,
+                       cf->pool, 1, sizeof(ngx_http_handler_pt))
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    if (ngx_array_init(&cmcf->phases[NGX_HTTP_PREACCESS_PHASE].handlers,
+                       cf->pool, 1, sizeof(ngx_http_handler_pt))
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    if (ngx_array_init(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers,
+                       cf->pool, 2, sizeof(ngx_http_handler_pt))
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    if (ngx_array_init(&cmcf->phases[NGX_HTTP_PRECONTENT_PHASE].handlers,
+                       cf->pool, 2, sizeof(ngx_http_handler_pt))
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    if (ngx_array_init(&cmcf->phases[NGX_HTTP_CONTENT_PHASE].handlers,
+                       cf->pool, 4, sizeof(ngx_http_handler_pt))
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    if (ngx_array_init(&cmcf->phases[NGX_HTTP_LOG_PHASE].handlers,
+                       cf->pool, 1, sizeof(ngx_http_handler_pt))
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t ngx_http_dyloc_init_headers_in_hash(ngx_conf_t *cf, ngx_http_core_main_conf_t *cmcf)
+{
+    ngx_array_t         headers_in;
+    ngx_hash_key_t     *hk;
+    ngx_hash_init_t     hash;
+    ngx_http_header_t  *header;
+
+    if (ngx_array_init(&headers_in, cf->temp_pool, 32, sizeof(ngx_hash_key_t))
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    for (header = ngx_http_headers_in; header->name.len; header++) {
+        hk = ngx_array_push(&headers_in);
+        if (hk == NULL) {
+            return NGX_ERROR;
+        }
+
+        hk->key = header->name;
+        hk->key_hash = ngx_hash_key_lc(header->name.data, header->name.len);
+        hk->value = header;
+    }
+
+    hash.hash = &cmcf->headers_in_hash;
+    hash.key = ngx_hash_key_lc;
+    hash.max_size = 512;
+    hash.bucket_size = ngx_align(64, ngx_cacheline_size);
+    hash.name = "headers_in_hash";
+    hash.pool = cf->pool;
+    hash.temp_pool = NULL;
+
+    if (ngx_hash_init(&hash, headers_in.elts, headers_in.nelts) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
 }
 
 static ngx_int_t

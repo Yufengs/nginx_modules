@@ -360,7 +360,6 @@ quit:
 static ngx_int_t ngx_http_upstream_netrb_topology_get_local(ngx_conf_t *cf, ngx_array_t **localp)
 {
     u_char                            name[NGX_INET_ADDRSTRLEN];
-    size_t                            len;
     in_addr_t                         addr;
     ngx_array_t                      *local;
     struct ifaddrs                   *ifa;
@@ -382,11 +381,7 @@ static ngx_int_t ngx_http_upstream_netrb_topology_get_local(ngx_conf_t *cf, ngx_
                 addr = ((struct sockaddr_in *)ifa->ifa_addr)->sin_addr.s_addr;
 
                 if (addr == INADDR_ANY || addr == htonl(INADDR_LOOPBACK)) {
-                    len = ngx_inet_ntop(AF_INET, &addr, name, NGX_INET_ADDRSTRLEN);
-
-                    ngx_log_debug3(NGX_LOG_DEBUG_HTTP, cf->log, 0,
-                            "upstream rebalance get local address ignore %s:%*s",
-                            ifa->ifa_name, len, name);
+                    ngx_inet_ntop(AF_INET, &addr, name, NGX_INET_ADDRSTRLEN);
                     break;
                 }
 
