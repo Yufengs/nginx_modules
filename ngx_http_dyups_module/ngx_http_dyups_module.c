@@ -710,6 +710,8 @@ static ngx_buf_t *ngx_http_dyups_update_server(ngx_http_request_t *r, ngx_int_t 
     ngx_shmtx_unlock(&shpool->mutex);
 
     *status = ngx_dyups_update_upstream(params.up, buf, &rv);
+    if (*status == NGX_HTTP_OK)
+        ngx_http_dyups_write_in_file(params.up, buf);
 
     if ((buf = ngx_create_temp_buf(r->pool, rv.len)) == NULL) {
         *status = NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -848,6 +850,8 @@ static ngx_buf_t *ngx_http_dyups_add_server(ngx_http_request_t *r, ngx_int_t *st
     if (params.down) buf->last = ngx_sprintf(buf->last, " %V", params.down);
     buf->last = ngx_sprintf(buf->last, ";");
     *status = ngx_dyups_update_upstream(params.up, buf, &rv);
+    if (*status == NGX_HTTP_OK)
+        ngx_http_dyups_write_in_file(params.up, buf);
 
     if ((buf = ngx_create_temp_buf(r->pool, rv.len)) == NULL) {
         *status = NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -919,6 +923,8 @@ static ngx_buf_t *ngx_http_dyups_remove_server(ngx_http_request_t *r, ngx_int_t 
     ngx_shmtx_unlock(&shpool->mutex);
 
     *status = ngx_dyups_update_upstream(params.up, buf, &rv);
+    if (*status == NGX_HTTP_OK)
+        ngx_http_dyups_write_in_file(params.up, buf);
 
     if ((buf = ngx_create_temp_buf(r->pool, rv.len)) == NULL) {
         *status = NGX_HTTP_INTERNAL_SERVER_ERROR;
