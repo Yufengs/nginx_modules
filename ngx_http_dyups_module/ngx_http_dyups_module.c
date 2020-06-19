@@ -1175,7 +1175,8 @@ static ngx_int_t ngx_http_dyups_do_delete(ngx_http_request_t *r, ngx_array_t *re
     name = value[1];
 
     status = ngx_dyups_delete_upstream(&name, &rv);
-    ngx_http_dyups_write_in_file(&name, NULL);
+    if (status == NGX_HTTP_OK)
+        ngx_http_dyups_write_in_file(&name, NULL);
 
 finish:
     r->headers_out.status = status;
@@ -1259,7 +1260,8 @@ static void ngx_http_dyups_body_handler(ngx_http_request_t *r)
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "[dyups] post upstream name: %V", &name);
 
     status = ngx_dyups_update_upstream(&name, body, &rv);
-    ngx_http_dyups_write_in_file(&name, body);
+    if (status == NGX_HTTP_OK)
+        ngx_http_dyups_write_in_file(&name, body);
 
 finish:
     ngx_http_dyups_send_response(r, status, &rv);
