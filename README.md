@@ -589,6 +589,20 @@ http {
         server_name  127.0.0.1;
         set $dyloc_sync 1; #set variable for sync
     }
+    server { #upstream server 8090
+        listen       8090;
+        server_name  127.0.0.1;
+        location / {
+            return 200 "90";
+        }
+    }
+    #if --add-module=ngx_http_dyups_module, then you can activate dyups_interface to set dynamic upstreams.
+    server {
+        listen       8081;
+        location / {
+            dyups_interface; #API for operating dynamic upstreams
+        }
+    }
 }
 ```
 
@@ -603,8 +617,10 @@ $ curl -XPOST -d "location = /foo {return 503;}" "http://127.0.0.1:8080/del?serv
 $ curl -XPOST -d "location ~ \.php$ {return 200;}" "http://127.0.0.1:8080/add?server_name=127.0.0.1&port=80"
 #add a named location
 $ curl -XPOST -d "location @test {return 403;}" "http://127.0.0.1:8080/add?server_name=127.0.0.1&port=80"
+
 #of course, cooperate with dynamic upstream will be more flexible.
-$ curl -XPOST -d "location /foo {proxy_pass http://$_dyups_uptest;}" "http://127.0.0.1:8080/add?server_name=127.0.0.1&port=80"
+$ curl -d "server 127.0.0.1:8090;" 127.0.0.1:8081/upstream/uptest
+$ curl -XPOST -d "location /foo {proxy_pass http://uptest;}" "http://127.0.0.1:8080/add?server_name=127.0.0.1&port=80"
 ```
 
 
