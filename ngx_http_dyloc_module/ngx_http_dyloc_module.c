@@ -292,6 +292,12 @@ static char *ngx_http_dyloc_init_main_conf(ngx_conf_t *cf, void *conf)
                 return NGX_CONF_ERROR;
         }
     }
+    if (dmcf->dir_path.len == 7 && !ngx_strncasecmp(dmcf->dir_path.data, (u_char *)"default", 7)) {
+        dmcf->dir_path.data = cf->cycle->conf_prefix.data;
+        dmcf->dir_path.len = cf->cycle->conf_prefix.len;
+    } else if (dmcf->dir_path.len && dmcf->dir_path.data[0] != '/') {
+        return NGX_CONF_ERROR;
+    }
     return NGX_CONF_OK;
 }
 

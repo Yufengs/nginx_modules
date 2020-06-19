@@ -1365,8 +1365,8 @@ static ngx_int_t ngx_dyups_do_update(ngx_str_t *name, ngx_buf_t *buf, ngx_str_t 
 static void ngx_http_dyups_write_in_file(ngx_str_t *upstream_name, ngx_buf_t *content)
 {
     int                         fd, in_zone = 0;
-    size_t                      i, len;
-    char                        path[1024];
+    size_t                      i, len, left;
+    char                        path[1024] = {0};
     u_char                     *p, *q, *end, *file_content;
     ngx_http_dyups_main_conf_t *dumcf;
     struct stat                 st;
@@ -1376,9 +1376,20 @@ static void ngx_http_dyups_write_in_file(ngx_str_t *upstream_name, ngx_buf_t *co
     dumcf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_http_dyups_module);
     if (!dumcf->file_path.len) return;
 
-    len = dumcf->file_path.len >= sizeof(path)? sizeof(path)-1: dumcf->file_path.len;
-    memcpy(path, dumcf->file_path.data, len);
-    path[len] = 0;
+    if (dumcf->file_path.data[0] == '/') {
+        len = dumcf->file_path.len >= sizeof(path)? sizeof(path)-1: dumcf->file_path.len;
+        memcpy(path, dumcf->file_path.data, len);
+    } else {
+        left = sizeof(path) - 1;
+        len = ngx_cycle->conf_prefix.len > left? left: ngx_cycle->conf_prefix.len;
+        memcpy(path, ngx_cycle->conf_prefix.data, len);
+        left -= len;
+        if (dumcf->file_path.len > left) {
+            memcpy(path+len, dumcf->file_path.data, left);
+        } else {
+            memcpy(path+len, dumcf->file_path.data, dumcf->file_path.len);
+        }
+    }
 
     if (!access(path, F_OK)) {
         fd = open(path, O_RDWR);
